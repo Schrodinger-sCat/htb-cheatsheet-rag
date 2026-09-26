@@ -20,8 +20,8 @@ leaves your machine.
 ## Architecture
 
 ```
-raw *.md ──▶ ingest (heading-aware chunking) ──▶ index ┌─ BM25 (lexical)
-                                                        └─ embeddings (dense, Ollama)
+raw *.md ──▶ ingest (heading-aware chunking) ──▶ index ┌─ BM25 (lexical, in-memory)
+                                                        └─ embeddings ─▶ ChromaDB (dense)
                                                               │
 query ──────────────────────────────────────────▶ hybrid retrieval (RRF fusion)
                                                               │  top-k passages
@@ -30,6 +30,7 @@ query ────────────────────────�
 ```
 
 * **Retrieval:** hybrid **BM25 + dense embeddings**, fused with Reciprocal Rank Fusion.
+* **Vector store:** **ChromaDB** (persistent, cosine space) holds the dense vectors.
 * **Embeddings:** `all-minilm` by default (fast, local); `nomic-embed-text` optional.
 * **Synthesis:** `llama3.2:latest` (~2 GB) via Ollama, constrained to the retrieved text.
 
@@ -80,7 +81,8 @@ python -m scripts.ingest --no-dense   # lexical only, no embeddings
 ```
 
 …or over the API once the server is up (`POST /ingest`). Building embeds ~28.6k chunks
-and takes a few minutes on CPU with `all-minilm`. The index is written to `data/index/`.
+and takes a few minutes on CPU with `all-minilm`. The corpus + BM25 source is written to
+`data/index/chunks.jsonl` and the dense vectors to a ChromaDB store at `data/index/chroma/`.
 
 ## Run the API
 
@@ -170,7 +172,7 @@ All via environment variables (see [`app/config.py`](app/config.py)):
 app/            FastAPI service + RAG pipeline
   config.py       configuration (env-overridable)
   ingest.py       heading-aware Markdown chunking
-  index.py        BM25 + dense index build/load/save
+  index.py        BM25 + ChromaDB dense store: build/load/save
   retrieve.py     hybrid retrieval + RRF fusion
   synthesize.py   grounded, cited answer generation
   llm.py          Ollama client (embed + generate)

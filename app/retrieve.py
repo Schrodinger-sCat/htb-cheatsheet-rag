@@ -49,16 +49,18 @@ def _bm25_ranking(index: RagIndex, query: str, pool: int) -> List[int]:
 
 
 def _dense_ranking(index: RagIndex, query: str, pool: int) -> List[int]:
-    if index.embeddings is None:
+    if index.collection is None:
         return []
-    # Embed the query with the SAME model the index was built with.
-    q = np.asarray(llm.embed([query], model=index.embed_model)[0], dtype=np.float32)
-    n = np.linalg.norm(q)
-    if n:
-        q = q / n
-    sims = index.embeddings @ q
-    order = np.argsort(sims)[::-1]
-    return [int(i) for i in order[:pool]]
+    # Embed the query with the SAME model the index was built with, then let
+    # ChromaDB do the nearest-neighbour search (cosine space).
+    q = llm.embed([query], model=index.embed_model)[0]
+    res = index.collection.query(
+        query_embeddings=[q],
+        n_results=min(pool, index.size),
+        include=[],  # ids are always returned; we only need the ranked order
+    )
+    ids = res["ids"][0]
+    return [index.id2idx[cid] for cid in ids if cid in index.id2idx]
 
 
 def search(
@@ -69,8 +71,8 @@ def search(
 ) -> List[Hit]:
     top_k = top_k or config.DEFAULT_TOP_K
     pool = max(config.CANDIDATE_POOL, top_k)
-    use_dense = (index.embeddings is not None) if use_dense is None else (
-        use_dense and index.embeddings is not None
+    use_dense = index.dense_enabled if use_dense is None else (
+        use_dense and index.dense_enabled
     )
 
     lexical = _bm25_ranking(index, query, pool)

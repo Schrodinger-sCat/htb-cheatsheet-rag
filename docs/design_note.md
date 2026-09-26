@@ -40,6 +40,12 @@ two rank lists without having to calibrate BM25 scores against cosine similariti
 robust and parameter-light. BM25 is the backbone (it alone answers most specific
 technique questions); embeddings add recall on the broad "cheatsheet" queries.
 
+The dense vectors live in **ChromaDB** (a persistent collection in cosine space at
+`data/index/chroma/`). Chroma owns vector storage, metadata, and the nearest-neighbour
+search, so retrieval scales past a brute-force NumPy scan and the index survives restarts
+without re-embedding. BM25 stays in-memory (it rebuilds from `chunks.jsonl` in a second),
+and RRF fuses the two — so ChromaDB is exactly the dense/embedding half of the hybrid.
+
 Embeddings run locally through Ollama. I default to **all-minilm** (45 MB, 384-dim):
 on this CPU it embeds ~10× faster than `nomic-embed-text` (~19 vs ~1.8 chunks/s) while
 the BM25 half carries exact-term precision. `nomic-embed-text` remains a one-env-var

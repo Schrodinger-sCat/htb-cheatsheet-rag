@@ -1,0 +1,111 @@
+{
+  "_about": "Hand-written test set for the HTB Cheatsheet Assistant. `expected_machines` is a hand-derived answer key built by grepping the RAW write-ups (data/raw), NOT by trusting the RAG system. It lists machines that genuinely demonstrate the technique; it is a high-precision (not necessarily exhaustive) key used to measure retrieval recall/precision. `must_mention` lists key terms a good synthesized answer should contain.",
+  "questions": [
+    {
+      "id": "q01",
+      "type": "cheatsheet",
+      "question": "Provide me the Windows privilege escalation cheatsheet.",
+      "expected_machines": ["apt", "cereal", "fighter", "tally", "darkzero", "ghost", "absolute", "rebound", "bounty", "conceal"],
+      "must_mention": ["SeImpersonate", "potato", "certipy", "bloodhound"],
+      "note": "Broad. Any strong subset of potato-family / ADCS / token-abuse machines counts; scored on overlap."
+    },
+    {
+      "id": "q02",
+      "type": "specific",
+      "question": "How does Kerberoasting with GetUserSPNs work and which machines demonstrate it?",
+      "expected_machines": ["active", "rebound", "pivotapi", "search", "blackfield", "sizzle"],
+      "must_mention": ["GetUserSPNs", "SPN", "TGS", "hashcat"]
+    },
+    {
+      "id": "q03",
+      "type": "specific",
+      "question": "Which machines use AS-REP roasting with GetNPUsers and how is it performed?",
+      "expected_machines": ["forest", "sauna", "absolute", "jab", "intelligence", "multimaster", "blackfield", "rebound", "support"],
+      "must_mention": ["GetNPUsers", "AS-REP", "preauth"]
+    },
+    {
+      "id": "q04",
+      "type": "specific",
+      "question": "How is JuicyPotato used for privilege escalation and on which machines?",
+      "expected_machines": ["bruno", "conceal", "cereal", "fighter", "hackback", "rebound", "worker", "json", "tally", "shibuya"],
+      "must_mention": ["JuicyPotato", "SeImpersonate", "SYSTEM", "CLSID"]
+    },
+    {
+      "id": "q05",
+      "type": "specific",
+      "question": "How does PrintSpoofer abuse SeImpersonatePrivilege and which machines use it?",
+      "expected_machines": ["cereal", "pivotapi", "tally"],
+      "must_mention": ["PrintSpoofer", "SeImpersonate", "named pipe"]
+    },
+    {
+      "id": "q06",
+      "type": "specific",
+      "question": "How is GodPotato used and on which machines is it demonstrated?",
+      "expected_machines": ["darkzero", "ghost", "job", "haze", "media", "mailing", "breach", "sendai", "signed", "visual"],
+      "must_mention": ["GodPotato", "SeImpersonate", "SYSTEM"]
+    },
+    {
+      "id": "q07",
+      "type": "specific",
+      "question": "How is ADCS ESC1 abused with certipy and which machines demonstrate it?",
+      "expected_machines": ["certified", "authority", "escape", "manager", "certificate", "rebound", "scepter", "fluffy", "sendai"],
+      "must_mention": ["certipy", "ESC1", "template", "certificate"]
+    },
+    {
+      "id": "q08",
+      "type": "specific",
+      "question": "How does a shadow credentials attack work and which machines use it?",
+      "expected_machines": ["absolute", "certified", "mist", "rebound", "outdated"],
+      "must_mention": ["shadow", "msDS-KeyCredentialLink", "certificate"]
+    },
+    {
+      "id": "q09",
+      "type": "specific",
+      "question": "How is DCSync performed with secretsdump and which machines demonstrate it?",
+      "expected_machines": ["forest", "sauna", "blackfield", "administrator", "vintage", "mist", "rebound", "scepter"],
+      "must_mention": ["DCSync", "secretsdump", "krbtgt", "replication"]
+    },
+    {
+      "id": "q10",
+      "type": "cheatsheet",
+      "question": "Give me a Linux privilege escalation cheatsheet based on the write-ups.",
+      "expected_machines": ["popcorn", "valentine", "curling", "permx", "paper", "passage"],
+      "must_mention": ["sudo", "GTFOBins", "cron", "SUID"]
+    },
+    {
+      "id": "q11",
+      "type": "specific",
+      "question": "Which machines exploit the PwnKit (CVE-2021-4034) polkit vulnerability and how?",
+      "expected_machines": ["antique", "paper", "pressed", "routerspace", "ouija"],
+      "must_mention": ["pwnkit", "CVE-2021-4034", "polkit", "pkexec"]
+    },
+    {
+      "id": "q12",
+      "type": "specific",
+      "question": "How is the DirtyCow kernel exploit used and on which machines?",
+      "expected_machines": ["popcorn", "valentine"],
+      "must_mention": ["dirtycow", "kernel", "root"]
+    },
+    {
+      "id": "q13",
+      "type": "specific",
+      "question": "How is Log4Shell (Log4j JNDI) exploited and which machines demonstrate it?",
+      "expected_machines": ["crafty", "logforge", "interpreter", "watcher", "fatty"],
+      "must_mention": ["log4shell", "log4j", "jndi", "ldap"]
+    },
+    {
+      "id": "q14",
+      "type": "specific",
+      "question": "How is KrbRelay used to escalate and which machines demonstrate it?",
+      "expected_machines": ["absolute", "rebound"],
+      "must_mention": ["KrbRelay", "kerberos", "relay"]
+    },
+    {
+      "id": "q15",
+      "type": "specific",
+      "question": "How do write-ups dump the SAM and SYSTEM hives to extract local hashes?",
+      "expected_machines": ["bastion", "acute", "mist", "cicada", "freelancer", "outdated"],
+      "must_mention": ["SAM", "SYSTEM", "secretsdump", "hashes"]
+    }
+  ]
+}

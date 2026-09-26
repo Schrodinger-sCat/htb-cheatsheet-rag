@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Built index (regenerate with POST /ingest or scripts/ingest.py)
+data/index/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Private assessment brief
+Cyber-20Security_Trainee_Assessment*.pdf
+
+# Corpus is fetched, not vendored (see scripts/fetch_data.py)
+data/raw/*.md

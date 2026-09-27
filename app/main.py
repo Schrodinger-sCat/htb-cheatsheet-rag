@@ -57,16 +57,12 @@ def _startup() -> None:
 
 # --- schemas --------------------------------------------------------------
 class IngestRequest(BaseModel):
-    use_dense: Optional[bool] = Field(
-        None, description="Override dense embeddings on/off for this build."
-    )
     force: bool = Field(False, description="Rebuild even if an index already exists.")
 
 
 class AskRequest(BaseModel):
     question: str = Field(..., min_length=3, examples=["Provide me the Windows privilege escalation cheatsheet."])
     top_k: Optional[int] = Field(None, ge=1, le=30)
-    use_dense: Optional[bool] = None
     include_context: bool = Field(False, description="Return the retrieved passages too.")
 
 
@@ -113,7 +109,7 @@ def ingest(req: IngestRequest) -> dict:
 
     _build_status.update({"building": True, "processed": 0, "total": 0})
     try:
-        new_index = index_mod.build(use_dense=req.use_dense, progress=_progress)
+        new_index = index_mod.build(progress=_progress)
         index_mod.save(new_index)
         with _index_lock:
             _index = new_index
@@ -130,12 +126,11 @@ def ingest(req: IngestRequest) -> dict:
 def search(
     q: str = Query(..., min_length=2, description="Query text."),
     top_k: int = Query(config.DEFAULT_TOP_K, ge=1, le=30),
-    use_dense: Optional[bool] = Query(None),
     include_text: bool = Query(True),
 ) -> dict:
     idx = _get_index()
     try:
-        hits = retrieve_search(idx, q, top_k=top_k, use_dense=use_dense)
+        hits = retrieve_search(idx, q, top_k=top_k)
     except llm.OllamaError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {
@@ -149,7 +144,7 @@ def search(
 def ask(req: AskRequest) -> dict:
     idx = _get_index()
     try:
-        hits = retrieve_search(idx, req.question, top_k=req.top_k, use_dense=req.use_dense)
+        hits = retrieve_search(idx, req.question, top_k=req.top_k)
         answer = synthesize(req.question, hits)
     except llm.OllamaError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

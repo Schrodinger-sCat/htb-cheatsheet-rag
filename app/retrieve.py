@@ -1,29 +1,24 @@
-"""Hybrid retrieval: BM25 (lexical) + dense embeddings, fused with RRF.
+"""Embedding (dense) retrieval.
 
-Why hybrid (see docs/design_note.md): offensive-security queries mix exact
-tokens the writers use verbatim ("GetUserSPNs", "SeImpersonatePrivilege",
-"ADCS ESC1") with paraphrasable intent ("windows privilege escalation
-cheatsheet"). BM25 nails the former, embeddings the latter. Reciprocal Rank
-Fusion combines their rankings without needing to calibrate score scales.
+The query is embedded with the same model the index was built with, and ChromaDB
+returns the nearest passages by cosine similarity. This is a pure vector search:
+no lexical/keyword component. See docs/design_note.md for why embedding-only.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
-
-import numpy as np
+from typing import List
 
 from . import config, llm
-from .index import RagIndex, tokenize
+from .index import RagIndex
 from .ingest import Chunk
 
 
 @dataclass
 class Hit:
     chunk: Chunk
-    score: float
-    lexical_rank: Optional[int]
-    dense_rank: Optional[int]
+    score: float          # cosine similarity in [-1, 1] (higher = closer)
+    rank: int             # 0-based position in the result list
 
     def to_dict(self, include_text: bool = True) -> dict:
         d = {
@@ -34,69 +29,38 @@ class Hit:
             "heading_path": self.chunk.heading_path,
             "source": self.chunk.source,
             "score": round(self.score, 6),
-            "lexical_rank": self.lexical_rank,
-            "dense_rank": self.dense_rank,
+            "rank": self.rank,
         }
         if include_text:
             d["text"] = self.chunk.text
         return d
 
 
-def _bm25_ranking(index: RagIndex, query: str, pool: int) -> List[int]:
-    scores = index.bm25.get_scores(tokenize(query))
-    order = np.argsort(scores)[::-1]
-    return [int(i) for i in order[:pool] if scores[i] > 0]
-
-
-def _dense_ranking(index: RagIndex, query: str, pool: int) -> List[int]:
+def search(index: RagIndex, query: str, top_k: int | None = None) -> List[Hit]:
+    """Return the top-k passages nearest to the query in embedding space."""
+    top_k = top_k or config.DEFAULT_TOP_K
     if index.collection is None:
-        return []
+        raise RuntimeError(
+            "Dense index is not available. Rebuild with POST /ingest "
+            "(embedding retrieval requires the ChromaDB vector store)."
+        )
+
     # Embed the query with the SAME model the index was built with, then let
     # ChromaDB do the nearest-neighbour search (cosine space).
     q = llm.embed([query], model=index.embed_model)[0]
     res = index.collection.query(
         query_embeddings=[q],
-        n_results=min(pool, index.size),
-        include=[],  # ids are always returned; we only need the ranked order
+        n_results=min(top_k, index.size),
+        include=["distances"],
     )
     ids = res["ids"][0]
-    return [index.id2idx[cid] for cid in ids if cid in index.id2idx]
+    distances = res["distances"][0]
 
-
-def search(
-    index: RagIndex,
-    query: str,
-    top_k: int | None = None,
-    use_dense: bool | None = None,
-) -> List[Hit]:
-    top_k = top_k or config.DEFAULT_TOP_K
-    pool = max(config.CANDIDATE_POOL, top_k)
-    use_dense = index.dense_enabled if use_dense is None else (
-        use_dense and index.dense_enabled
-    )
-
-    lexical = _bm25_ranking(index, query, pool)
-    dense = _dense_ranking(index, query, pool) if use_dense else []
-
-    lex_rank = {idx: r for r, idx in enumerate(lexical)}
-    dense_rank = {idx: r for r, idx in enumerate(dense)}
-
-    # Reciprocal Rank Fusion.
-    fused: dict[int, float] = {}
-    for idx, r in lex_rank.items():
-        fused[idx] = fused.get(idx, 0.0) + 1.0 / (config.RRF_K + r + 1)
-    for idx, r in dense_rank.items():
-        fused[idx] = fused.get(idx, 0.0) + 1.0 / (config.RRF_K + r + 1)
-
-    ranked = sorted(fused.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
     hits: List[Hit] = []
-    for idx, score in ranked:
-        hits.append(
-            Hit(
-                chunk=index.chunks[idx],
-                score=score,
-                lexical_rank=lex_rank.get(idx),
-                dense_rank=dense_rank.get(idx),
-            )
-        )
+    for rank, (cid, dist) in enumerate(zip(ids, distances)):
+        idx = index.id2idx.get(cid)
+        if idx is None:
+            continue
+        # Chroma cosine "distance" is 1 - cosine_similarity.
+        hits.append(Hit(chunk=index.chunks[idx], score=1.0 - dist, rank=rank))
     return hits

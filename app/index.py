@@ -1,39 +1,28 @@
-"""Index build / persist / load.
+"""Index build / persist / load — embedding (dense) retrieval only.
 
-The index has two halves:
-
-  * **Lexical (BM25)** — rebuilt in memory from `chunks.jsonl` on load. Cheap, so
-    only the chunk corpus is persisted as JSONL (it also drives the pure-lexical,
-    no-embeddings mode).
-  * **Dense (embeddings)** — stored in a **ChromaDB** persistent collection at
-    `data/index/chroma/`. Chroma owns the vectors, their metadata, and the
-    approximate-nearest-neighbour search (cosine space).
+Dense vectors live in a **ChromaDB** persistent collection at `data/index/chroma/`.
+Chroma owns the vectors, their metadata, and the approximate-nearest-neighbour
+search (cosine space). The chunk corpus + metadata is also written to
+`chunks.jsonl` so we can map Chroma's returned ids back to full Chunk objects and
+compute corpus statistics.
 
 On disk in `data/index/`:
-    chunks.jsonl   - one JSON chunk per line (corpus + metadata; BM25 source)
+    chunks.jsonl   - one JSON chunk per line (corpus + metadata)
     chroma/        - ChromaDB persistent store (dense vectors)
-    meta.json      - build info (models, counts, dense flag)
+    meta.json      - build info (models, counts)
 """
 from __future__ import annotations
 
 import json
-import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
-from rank_bm25 import BM25Okapi
-
 from . import config, llm
 from .ingest import Chunk, build_chunks
 
-_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+")
 COLLECTION_NAME = "htb_writeups"
-
-
-def tokenize(text: str) -> List[str]:
-    return _TOKEN_RE.findall(text.lower())
 
 
 def _chroma_dir(index_dir: Path) -> Path:
@@ -53,8 +42,7 @@ def _chroma_client(index_dir: Path):
 @dataclass
 class RagIndex:
     chunks: List[Chunk]
-    bm25: BM25Okapi
-    collection: object              # Chroma collection, or None if dense disabled
+    collection: object              # Chroma collection (None only if not built)
     id2idx: dict                    # chunk.id -> position in `chunks`
     embed_model: Optional[str]
     llm_model: str
@@ -157,24 +145,18 @@ def _populate_chroma(client, chunks: List[Chunk], embeddings: List[List[float]])
     return collection
 
 
-def build(raw_dir: Path | None = None, use_dense: bool | None = None, progress=None) -> RagIndex:
-    use_dense = config.USE_DENSE if use_dense is None else use_dense
+def build(raw_dir: Path | None = None, progress=None) -> RagIndex:
     index_dir = config.INDEX_DIR
     chunks = build_chunks(raw_dir)
     if not chunks:
         raise ValueError(f"No chunks produced from {raw_dir or config.RAW_DIR}")
-    bm25 = BM25Okapi([tokenize(c.retrieval_text()) for c in chunks])
     id2idx = {c.id: i for i, c in enumerate(chunks)}
 
-    collection = None
-    embed_model = None
-    if use_dense:
-        embeddings = _embed_all(chunks, progress=progress)
-        client = _chroma_client(index_dir)
-        collection = _populate_chroma(client, chunks, embeddings)
-        embed_model = config.EMBED_MODEL
+    embeddings = _embed_all(chunks, progress=progress)
+    client = _chroma_client(index_dir)
+    collection = _populate_chroma(client, chunks, embeddings)
 
-    return RagIndex(chunks, bm25, collection, id2idx, embed_model, config.LLM_MODEL)
+    return RagIndex(chunks, collection, id2idx, config.EMBED_MODEL, config.LLM_MODEL)
 
 
 def save(index: RagIndex, index_dir: Path | None = None) -> None:
@@ -206,7 +188,6 @@ def load(index_dir: Path | None = None) -> RagIndex:
     with chunks_file.open(encoding="utf-8") as fh:
         for line in fh:
             chunks.append(Chunk(**json.loads(line)))
-    bm25 = BM25Okapi([tokenize(c.retrieval_text()) for c in chunks])
     id2idx = {c.id: i for i, c in enumerate(chunks)}
 
     collection = None
@@ -219,10 +200,10 @@ def load(index_dir: Path | None = None) -> RagIndex:
             if coll.count() > 0:
                 collection = coll
                 embed_model = meta.get("embed_model", config.EMBED_MODEL)
-        except Exception:  # noqa: BLE001 - no/empty collection -> lexical-only
+        except Exception:  # noqa: BLE001 - collection missing/empty
             collection = None
 
-    return RagIndex(chunks, bm25, collection, id2idx, embed_model, config.LLM_MODEL)
+    return RagIndex(chunks, collection, id2idx, embed_model, config.LLM_MODEL)
 
 
 def exists(index_dir: Path | None = None) -> bool:

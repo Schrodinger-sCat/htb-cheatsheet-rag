@@ -2,8 +2,9 @@
 
 **Setup.** 15 hand-written questions (`eval/testset.json`), answer keys hand-derived by
 grepping the raw write-ups (not from the system). Corpus: 513 machines → 28,634 chunks.
-Retriever: hybrid BM25 + `all-minilm` dense, RRF fusion. Synthesis: `llama3.2:latest`.
-Metrics collected with `python -m eval.evaluate --ask --k 8`.
+Retriever: **embedding (dense) only** — ChromaDB cosine nearest-neighbour over
+`all-minilm` vectors. Synthesis: `llama3.2:latest`. Metrics collected with
+`python -m eval.evaluate --ask --k 8`.
 
 Retrieval quality is measured at the **machine level**: of the machines that genuinely
 demonstrate a technique (the key), how many appear among the machines surfaced in the
@@ -14,70 +15,74 @@ top-k retrieved chunks (recall), and how many of the retrieved machines are in t
 
 | Slice | Recall | Precision |
 |-------|:------:|:---------:|
-| **All 15 questions** | **0.55** | **0.52** |
-| Specific questions (13) | **0.60** | **0.57** |
-| Broad "cheatsheet" questions (2) | 0.17 | 0.14 |
+| **All 15 questions** | **0.43** | **0.39** |
+| Specific questions (13) | **0.48** | **0.43** |
+| Broad "cheatsheet" questions (2) | 0.13 | 0.13 |
 
-Per-question highlights (see `eval/evaluate.py` for the full table):
+Per-question highlights (full table from `eval/evaluate.py`):
 
 | id | question theme | recall | prec |
 |----|----------------|:---:|:---:|
-| q06 | GodPotato | 0.70 | 1.00 |
-| q11 | PwnKit / CVE-2021-4034 | 0.80 | 0.80 |
 | q12 | DirtyCow | 1.00 | 0.40 |
-| q13 | Log4Shell | 0.40 | 1.00 |
 | q14 | KrbRelay | 1.00 | 0.33 |
-| q02 | Kerberoasting (GetUserSPNs) | 0.67 | 0.80 |
-| q07 | ADCS ESC1 (certipy) | 0.22 | 0.33 |
-| q01 | **Windows privesc cheatsheet** | 0.00 | 0.00 |
+| q06 | GodPotato | 0.60 | 0.75 |
+| q11 | PwnKit / CVE-2021-4034 | 0.60 | 0.50 |
+| q15 | SAM/SYSTEM dump | 0.50 | 0.60 |
+| q02 | Kerberoasting (GetUserSPNs) | 0.33 | 0.33 |
+| q05 | PrintSpoofer | 0.00 | 0.00 |
+| q01 | Windows privesc cheatsheet | 0.10 | 0.12 |
 
 ### Reading the numbers
 
-* **Specific, technique-named queries work well** (recall 0.60, precision 0.57). BM25 is
-  the workhorse here — it matches the verbatim tokens the write-ups use (`GodPotato`,
-  `pkexec`, `GetUserSPNs`), and dense retrieval fills in paraphrases. Precision is high
-  on distinctive terms (Log4Shell 1.00, GodPotato 1.00).
-* **Broad "cheatsheet" queries are the weak spot** (recall 0.17). The flagship query
-  *"Provide me the Windows privilege escalation cheatsheet"* scores **0.00** against its
-  key — **but this is largely a measurement artifact, not a retrieval failure.** Roughly
-  100+ machines demonstrate some Windows privesc; the hand key is one valid 10-machine
-  subset. The retriever returns genuine Windows-privesc sections (Control/WinPEAS,
-  Grandpa MS-bulletins, Return/Redelegate token abuse) — correct content that simply
-  doesn't intersect the fixed key. The deeper, real issue is that the query contains no
-  technique tokens, so BM25 has nothing sharp to grab and `all-minilm` drifts toward
-  generic "enumeration" sections rather than the modern potato/ADCS techniques the ideal
-  cheatsheet wants. This is the case the "what I'd improve" note targets.
-* **Precision < 1.0 is expected and fine.** A machine can appear in the top-8 for a real
-  reason yet not be in a *high-precision* key that deliberately lists only unambiguous
-  examples (e.g. DirtyCow's key is just 2 machines; the retriever also surfaces other
-  kernel-exploit boxes). Precision here undercounts rather than reflecting noise.
+* **Embedding-only retrieval trades precision for simplicity.** With one representation
+  and one store (ChromaDB), the pipeline is a single vector query — but the results are
+  ranked purely by semantic similarity. On this test set that lands at recall 0.48 /
+  precision 0.43 on specific questions.
+* **The clearest cost is verbatim-token queries.** `q05` (PrintSpoofer) drops to **0.00**:
+  the three write-ups that name it are found by an exact-string match far more reliably
+  than by meaning, and semantic search pulls in adjacent "SeImpersonate/potato" passages
+  from other machines instead. `q02` (GetUserSPNs) slips for the same reason. This is the
+  expected downside of removing lexical search, and it is the top item in the design
+  note's "what I'd improve."
+* **Semantic strengths still show.** `q12` (DirtyCow) and `q14` (KrbRelay) hit 1.00 recall,
+  and `q06` (GodPotato) reaches 0.75 precision — the model groups genuinely related
+  passages even when phrasing varies.
+* **Broad "cheatsheet" queries remain the weak spot** (recall 0.13). A query with no
+  technique tokens ("Windows privilege escalation cheatsheet") gives the embedder only a
+  vague direction, so it drifts toward generic "enumeration" passages. Partly a scoring
+  artifact too: ~100+ machines demonstrate some privesc, and the hand key lists one valid
+  subset.
 
 ## Synthesis quality
 
 Measured on the generated answers:
 
-* **Concept coverage** (`must_mention` terms present in the answer): **72%** overall,
-  **80%** on specific questions. The model reliably names the right primitives —
-  `GetUserSPNs`/TGS, `SeImpersonate`/named pipe, `certipy`/ESC1, `pkexec`/polkit, etc.
-* **Citation correctness:** **14 / 15** answers cite at least one machine that is in the
-  hand-derived key, and citations are drawn from the retrieved passages. Example (q06):
-  GodPotato correctly attributed to *Job* and *Breach*; (q11) PwnKit to *Antique*,
-  *Paper*, *Routerspace*.
-* **Grounding / refusal works.** The prompt forbids outside knowledge, and the model
-  honours it: for a GodPotato question it explicitly wrote *"Not explicitly mentioned in
-  the CONTEXT passages"* for adjacent techniques rather than inventing them.
-* **Did it invent anything?** The automated hallucinated-citation check flagged **0 real
-  cases** (its single flag, "registry" on q01, is a false positive — the answer wrote
-  *"Registry Privilege Escalation … seen on: Control"*, i.e. the Windows registry as a
-  technique, not the machine Registry). One genuine minor slip: on q01 the 3B model once
-  listed *"Windows 8.1"* — an OS version, not a machine — inside a *seen on:* clause.
-  Small models occasionally mislabel a non-machine token as a source; a re-ranker + a
-  citation validator against the known machine list would catch this.
+* **Concept coverage** (`must_mention` terms present in the answer): **70%** overall,
+  **80%** on specific questions — the model still names the right primitives
+  (`GetUserSPNs`/TGS, `certipy`/ESC1, `pkexec`/polkit, `log4j`/JNDI).
+* **Citation correctness:** **13 / 15** answers cite at least one machine from the
+  hand-derived key, drawn from the retrieved passages (e.g. q06 GodPotato → *Breach,
+  Haze, Job, Media*; q11 PwnKit → *Antique, Paper*).
+* **Grounding / refusal works.** The prompt forbids outside knowledge and the model
+  honours it, writing "not covered" for techniques absent from the context rather than
+  inventing them.
+* **Did it invent citations?** The automated check flagged 2 questions, but both are
+  **false positives**: the flagged "machines" are the words *code* and *response* — real
+  HTB machine names that also appear as ordinary words in the answer prose. No confirmed
+  invented machine citation. (A stricter validator that only accepts names inside the
+  `(seen on: …)` parentheses would remove this noise.)
+
+## Comparison: this is a deliberate downgrade from hybrid
+
+An earlier version fused embeddings with a BM25 keyword retriever (RRF). For reference,
+that hybrid scored higher on specific questions (recall ~0.60 / precision ~0.57 at k=8).
+Switching to **embedding-only** was an intentional design change; the ~0.12 precision it
+costs on specific queries is the price of dropping the lexical half, and re-adding it
+(then re-ranking) is the first item under "what I'd improve" in the design note.
 
 ## Bottom line
 
-The system does what it was built to do: for concrete offensive-security questions it
-retrieves the right passages and produces grounded, correctly-cited answers without
-inventing techniques. Its measured weak spot is broad, keyword-free "cheatsheet" queries
-— partly a scoring artifact, partly a real retrieval gap that query expansion and
-re-ranking (see the design note) would close.
+Pure embedding retrieval keeps the system grounded and correctly cited, and it shines on
+questions where meaning matters more than exact wording. Its measured weakness is queries
+built around a specific verbatim token (PrintSpoofer, GetUserSPNs) and broad keyword-free
+"cheatsheet" queries — exactly where a lexical retriever would have helped.

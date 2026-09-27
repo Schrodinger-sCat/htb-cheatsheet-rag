@@ -19,39 +19,36 @@ Two details that mattered in practice:
 
 Every chunk is indexed and embedded as `retrieval_text()` =
 `[Machine: X | OS: Y] <breadcrumb>\n<body>`. Prepending the machine + section gives
-both retrievers an anchor the raw body often lacks (a code block rarely repeats the
+the embedder an anchor the raw body often lacks (a code block rarely repeats the
 machine name), and it is what lets the system answer "which machine(s)?".
 
 Result: ~28.6k chunks over 513 machines, ~1.0k chars each.
 
-## Lexical vs. embedding retrieval — why **hybrid**
+## Retrieval — embedding (dense) only
 
-Offensive-security queries are bimodal:
+Retrieval is a **pure vector search**. The query is embedded with the same model as
+the corpus, and **ChromaDB** returns the nearest passages by cosine similarity. There
+is no lexical/keyword component.
 
-* **Exact tokens** the authors write verbatim — `GetUserSPNs`, `SeImpersonatePrivilege`,
-  `certipy`, `ESC1`, `pkexec`. Here **BM25** is unbeatable: an embedding model can
-  blur `ESC1` vs `ESC8`, but BM25 matches the literal string.
-* **Paraphrasable intent** — "windows privilege escalation cheatsheet",
-  "how do I become SYSTEM from a service account". Here **dense embeddings** win
-  because the write-ups rarely contain the query's exact words.
+Why embeddings rather than lexical:
 
-So I run both and fuse with **Reciprocal Rank Fusion** (RRF, k=60). RRF combines the
-two rank lists without having to calibrate BM25 scores against cosine similarities —
-robust and parameter-light. BM25 is the backbone (it alone answers most specific
-technique questions); embeddings add recall on the broad "cheatsheet" queries.
+* **Meaning over spelling.** Embeddings match intent even when the words differ, so
+  broad questions ("how do I become SYSTEM from a service account", "windows privilege
+  escalation cheatsheet") retrieve relevant passages that share no literal tokens with
+  the query — where a keyword search returns nothing.
+* **One representation, one store.** ChromaDB owns the vectors, metadata, and the
+  approximate-nearest-neighbour index; it persists to disk and survives restarts
+  without re-embedding. The retrieval path is a single `collection.query()`.
 
-The dense vectors live in **ChromaDB** (a persistent collection in cosine space at
-`data/index/chroma/`). Chroma owns vector storage, metadata, and the nearest-neighbour
-search, so retrieval scales past a brute-force NumPy scan and the index survives restarts
-without re-embedding. BM25 stays in-memory (it rebuilds from `chunks.jsonl` in a second),
-and RRF fuses the two — so ChromaDB is exactly the dense/embedding half of the hybrid.
+The honest trade-off: dropping lexical search costs precision on queries built around a
+verbatim token (`GetUserSPNs`, `pkexec`, `ESC1`), where an exact-string matcher is hard
+to beat and the embedder can blur near-neighbours (`ESC1` vs `ESC8`). Recovering that is
+the top item under "what I'd improve."
 
 Embeddings run locally through Ollama. I default to **all-minilm** (45 MB, 384-dim):
-on this CPU it embeds ~10× faster than `nomic-embed-text` (~19 vs ~1.8 chunks/s) while
-the BM25 half carries exact-term precision. `nomic-embed-text` remains a one-env-var
-swap (`RAG_EMBED_MODEL`) when higher-quality embeddings are worth the slower build,
-and dense retrieval can be turned off entirely (`RAG_USE_DENSE=0`) for a pure-lexical,
-zero-embedding-cost mode.
+on this CPU it embeds ~10× faster than `nomic-embed-text` (~19 vs ~1.8 chunks/s) and is
+accurate enough for this corpus. `nomic-embed-text` is a one-env-var swap
+(`RAG_EMBED_MODEL`) when higher-quality embeddings are worth the slower build.
 
 ## Synthesis / grounding
 
@@ -64,10 +61,10 @@ caller can verify the answer against its sources.
 
 ## What I'd improve with another week
 
-**Add a cross-encoder / LLM re-ranker over the fused top-30.** RRF gets the right
-passages into the candidate pool, but for broad cheatsheet queries the *ordering*
-within the pool is coarse, and the LLM only sees the top ~8. A lightweight re-rank
-(even `llama3.2` scoring query–passage relevance, or a small cross-encoder) before
-truncation would raise precision on the passages that actually reach synthesis, and
-would let me group by *technique* across machines rather than by raw chunk score —
-which is exactly the shape a good cheatsheet answer wants.
+**Re-add lexical signal, then re-rank.** Pure embedding retrieval loses precision on
+verbatim-token queries. I'd bring back a keyword retriever (BM25) *and* fuse it with the
+dense results (RRF) to recover exact-term precision, then run a lightweight re-ranker
+(even `llama3.2` scoring query–passage relevance, or a small cross-encoder) over the top
+~30 candidates before the LLM sees the top ~8. The re-rank would also let me group by
+*technique* across machines rather than by raw similarity — exactly the shape a good
+cheatsheet answer wants.

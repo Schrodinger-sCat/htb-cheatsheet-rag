@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 """Build and persist the RAG index from the command line.
 
+Embeds every chunk (via Ollama) and stores the vectors in ChromaDB.
+
 Usage:
-    python -m scripts.ingest            # hybrid (BM25 + dense embeddings)
-    python -m scripts.ingest --no-dense # lexical only (no Ollama needed)
+    python -m scripts.ingest
 """
 import argparse
 import sys
@@ -13,9 +14,8 @@ from app import index as index_mod
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Build the HTB RAG index.")
-    ap.add_argument("--no-dense", action="store_true", help="Skip embeddings (BM25 only).")
-    args = ap.parse_args()
+    ap = argparse.ArgumentParser(description="Build the HTB RAG index (embedding retrieval).")
+    ap.parse_args()
 
     start = time.time()
     last = {"t": 0.0}
@@ -28,7 +28,7 @@ def main() -> int:
             last["t"] = now
 
     print("Building index...", flush=True)
-    idx = index_mod.build(use_dense=not args.no_dense, progress=progress)
+    idx = index_mod.build(progress=progress)
     index_mod.save(idx)
     print(f"Done in {time.time()-start:.1f}s", flush=True)
     print(idx.stats())

@@ -20,21 +20,20 @@ leaves your machine.
 ## Architecture
 
 ```
-raw *.md ──▶ ingest (heading-aware chunking) ──▶ index ┌─ BM25 (lexical, in-memory)
-                                                        └─ embeddings ─▶ ChromaDB (dense)
-                                                              │
-query ──────────────────────────────────────────▶ hybrid retrieval (RRF fusion)
-                                                              │  top-k passages
-                                                              ▼
+raw *.md ──▶ ingest (heading-aware chunking) ──▶ embeddings ──▶ ChromaDB (dense vectors)
+                                                                      │
+query ──▶ embed ─────────────────────────────────────▶ nearest-neighbour search
+                                                                      │  top-k passages
+                                                                      ▼
                                           synthesize (llama3.2, grounded + cited)
 ```
 
-* **Retrieval:** hybrid **BM25 + dense embeddings**, fused with Reciprocal Rank Fusion.
-* **Vector store:** **ChromaDB** (persistent, cosine space) holds the dense vectors.
+* **Retrieval:** **embedding (dense) only** — cosine nearest-neighbour search, no lexical component.
+* **Vector store:** **ChromaDB** (persistent, cosine space) holds the vectors.
 * **Embeddings:** `all-minilm` by default (fast, local); `nomic-embed-text` optional.
 * **Synthesis:** `llama3.2:latest` (~2 GB) via Ollama, constrained to the retrieved text.
 
-See [`docs/design_note.md`](docs/design_note.md) for the chunking + lexical-vs-embedding
+See [`docs/design_note.md`](docs/design_note.md) for the chunking + embedding-retrieval
 rationale, and [`docs/evaluation.md`](docs/evaluation.md) for the scored results.
 
 ---
@@ -76,13 +75,12 @@ python -m scripts.fetch_data
 Either from the CLI:
 
 ```bash
-python -m scripts.ingest              # hybrid (BM25 + embeddings)
-python -m scripts.ingest --no-dense   # lexical only, no embeddings
+python -m scripts.ingest              # embeds all chunks into ChromaDB
 ```
 
 …or over the API once the server is up (`POST /ingest`). Building embeds ~28.6k chunks
-and takes a few minutes on CPU with `all-minilm`. The corpus + BM25 source is written to
-`data/index/chunks.jsonl` and the dense vectors to a ChromaDB store at `data/index/chroma/`.
+and takes a few minutes on CPU with `all-minilm`. The corpus + metadata is written to
+`data/index/chunks.jsonl` and the vectors to a ChromaDB store at `data/index/chroma/`.
 
 ## Run the API
 
@@ -160,9 +158,8 @@ All via environment variables (see [`app/config.py`](app/config.py)):
 |---------------------|----------------------|--------------------------------------|
 | `OLLAMA_HOST`       | `http://localhost:11434` | Ollama endpoint                  |
 | `RAG_LLM_MODEL`     | `llama3.2:latest`    | Synthesis model                      |
-| `RAG_EMBED_MODEL`   | `all-minilm`         | Embedding model                      |
-| `RAG_USE_DENSE`     | `1`                  | `0` = pure lexical (no embeddings)   |
-| `RAG_TOP_K`         | `8`                  | Passages fed to the LLM              |
+| `RAG_EMBED_MODEL`   | `all-minilm`         | Embedding model (`nomic-embed-text` for higher quality) |
+| `RAG_TOP_K`         | `8`                  | Passages retrieved and fed to the LLM |
 
 ---
 
@@ -172,8 +169,8 @@ All via environment variables (see [`app/config.py`](app/config.py)):
 app/            FastAPI service + RAG pipeline
   config.py       configuration (env-overridable)
   ingest.py       heading-aware Markdown chunking
-  index.py        BM25 + ChromaDB dense store: build/load/save
-  retrieve.py     hybrid retrieval + RRF fusion
+  index.py        ChromaDB vector store: build/load/save
+  retrieve.py     embedding (dense) retrieval via ChromaDB
   synthesize.py   grounded, cited answer generation
   llm.py          Ollama client (embed + generate)
   main.py         API endpoints

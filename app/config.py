@@ -18,7 +18,7 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 # Synthesis model: "llama 3.2 latest 2gb" -> the 3B instruct build is ~2.0 GB.
 LLM_MODEL = os.getenv("RAG_LLM_MODEL", "llama3.2:latest")
 # all-minilm (45 MB, 384-dim) embeds ~10x faster than nomic-embed-text on CPU
-# and, paired with BM25 in the hybrid retriever, is plenty for paraphrase recall.
+# and is plenty accurate for the embedding retrieval here.
 # Set RAG_EMBED_MODEL=nomic-embed-text for higher-quality (slower) embeddings.
 EMBED_MODEL = os.getenv("RAG_EMBED_MODEL", "all-minilm")
 REQUEST_TIMEOUT = float(os.getenv("RAG_REQUEST_TIMEOUT", "180"))
@@ -30,13 +30,8 @@ CHUNK_OVERLAP_CHARS = int(os.getenv("RAG_CHUNK_OVERLAP_CHARS", "200"))
 MIN_CHUNK_CHARS = int(os.getenv("RAG_MIN_CHUNK_CHARS", "80"))
 
 # --- Retrieval ------------------------------------------------------------
+# Passages returned by the embedding search (and fed to the LLM).
 DEFAULT_TOP_K = int(os.getenv("RAG_TOP_K", "8"))
-# How many candidates each retriever contributes before fusion.
-CANDIDATE_POOL = int(os.getenv("RAG_CANDIDATE_POOL", "40"))
-# Reciprocal-rank-fusion constant.
-RRF_K = int(os.getenv("RAG_RRF_K", "60"))
-# Set to "0" to disable dense retrieval (pure lexical / offline mode).
-USE_DENSE = os.getenv("RAG_USE_DENSE", "1") == "1"
 
 # --- Generation -----------------------------------------------------------
 LLM_TEMPERATURE = float(os.getenv("RAG_LLM_TEMPERATURE", "0.1"))

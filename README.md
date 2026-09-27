@@ -160,6 +160,30 @@ All via environment variables (see [`app/config.py`](app/config.py)):
 | `RAG_LLM_MODEL`     | `llama3.2:latest`    | Synthesis model                      |
 | `RAG_EMBED_MODEL`   | `all-minilm`         | Embedding model (`nomic-embed-text` for higher quality) |
 | `RAG_TOP_K`         | `8`                  | Passages retrieved and fed to the LLM |
+| `RAG_CHROMA_HOST`   | *(unset)*            | Standalone Chroma server host; unset = embedded on-disk |
+| `RAG_CHROMA_PORT`   | `8000`               | Standalone Chroma server port           |
+| `RAG_CHROMA_SSL`    | `0`                  | `1` to connect to the Chroma server over HTTPS |
+
+### Using a standalone ChromaDB server (optional)
+
+By default Chroma runs **embedded** (in-process) and persists to `data/index/chroma/`.
+To use a separate ChromaDB server instead, start one and point the app at it:
+
+```bash
+# terminal 1 — run the Chroma server (installed with the requirements)
+chroma run --host 0.0.0.0 --port 8001 --path ./chroma-data
+#   ...or via Docker:  docker run -p 8001:8000 chromadb/chroma
+
+# terminal 2 — tell the app to use it, then ingest + serve
+export RAG_CHROMA_HOST=localhost RAG_CHROMA_PORT=8001
+python -m scripts.ingest        # vectors now land in the server, not on local disk
+./scripts/run.sh
+```
+
+With `RAG_CHROMA_HOST` set the app connects over HTTP (`HttpClient`), so the vectors
+live on the server and are shared by any client that points at it. Note the Chroma
+server's own default port is `8000`, which collides with the API's default port — run
+one of them elsewhere (the example uses `8001` for Chroma).
 
 ---
 

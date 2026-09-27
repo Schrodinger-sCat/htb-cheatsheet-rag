@@ -30,9 +30,21 @@ def _chroma_dir(index_dir: Path) -> Path:
 
 
 def _chroma_client(index_dir: Path):
+    """Return a Chroma client.
+
+    Standalone server if RAG_CHROMA_HOST is set (HttpClient), otherwise an
+    embedded, on-disk store (PersistentClient) under `index_dir/chroma`.
+    """
     import chromadb
     from chromadb.config import Settings
 
+    if config.CHROMA_HOST:
+        return chromadb.HttpClient(
+            host=config.CHROMA_HOST,
+            port=config.CHROMA_PORT,
+            ssl=config.CHROMA_SSL,
+            settings=Settings(anonymized_telemetry=False),
+        )
     return chromadb.PersistentClient(
         path=str(_chroma_dir(index_dir)),
         settings=Settings(anonymized_telemetry=False, allow_reset=True),
@@ -193,14 +205,16 @@ def load(index_dir: Path | None = None) -> RagIndex:
     collection = None
     embed_model = None
     meta = json.loads((index_dir / "meta.json").read_text()) if (index_dir / "meta.json").exists() else {}
-    if _chroma_dir(index_dir).exists():
+    # Connect to a remote Chroma server whenever configured; otherwise only if
+    # an embedded store exists on disk.
+    if config.CHROMA_HOST or _chroma_dir(index_dir).exists():
         try:
             client = _chroma_client(index_dir)
             coll = client.get_collection(COLLECTION_NAME)
             if coll.count() > 0:
                 collection = coll
                 embed_model = meta.get("embed_model", config.EMBED_MODEL)
-        except Exception:  # noqa: BLE001 - collection missing/empty
+        except Exception:  # noqa: BLE001 - collection missing/empty/unreachable
             collection = None
 
     return RagIndex(chunks, collection, id2idx, embed_model, config.LLM_MODEL)

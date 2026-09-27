@@ -13,6 +13,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 RAW_DIR = Path(os.getenv("RAG_RAW_DIR", BASE_DIR / "data" / "raw"))
 INDEX_DIR = Path(os.getenv("RAG_INDEX_DIR", BASE_DIR / "data" / "index"))
 
+# --- ChromaDB -------------------------------------------------------------
+# By default Chroma runs *embedded* (in-process) and persists to INDEX_DIR/chroma.
+# To use a standalone Chroma server instead (e.g. `chroma run --host 0.0.0.0
+# --port 8001`, or a Docker container), set RAG_CHROMA_HOST (and optionally
+# RAG_CHROMA_PORT). When a host is set, the app connects with HttpClient and the
+# vectors live on that server rather than on local disk.
+CHROMA_HOST = os.getenv("RAG_CHROMA_HOST")  # e.g. "localhost"; unset = embedded
+CHROMA_PORT = int(os.getenv("RAG_CHROMA_PORT", "8000"))
+CHROMA_SSL = os.getenv("RAG_CHROMA_SSL", "0") == "1"
+
 # --- Ollama ---------------------------------------------------------------
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 # Synthesis model: "llama 3.2 latest 2gb" -> the 3B instruct build is ~2.0 GB.

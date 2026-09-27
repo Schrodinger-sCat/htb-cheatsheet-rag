@@ -38,7 +38,9 @@ Why embeddings rather than lexical:
   the query — where a keyword search returns nothing.
 * **One representation, one store.** ChromaDB owns the vectors, metadata, and the
   approximate-nearest-neighbour index; it persists to disk and survives restarts
-  without re-embedding. The retrieval path is a single `collection.query()`.
+  without re-embedding. The retrieval path is a single `collection.query()`. Chroma
+  runs embedded by default, and setting `RAG_CHROMA_HOST` switches it to a standalone
+  server (`HttpClient`) with no other code change.
 
 The honest trade-off: dropping lexical search costs precision on queries built around a
 verbatim token (`GetUserSPNs`, `pkexec`, `ESC1`), where an exact-string matcher is hard

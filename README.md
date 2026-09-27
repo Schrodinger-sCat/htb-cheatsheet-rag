@@ -152,7 +152,14 @@ Scored results and analysis: [`docs/evaluation.md`](docs/evaluation.md).
 
 ## Configuration
 
-All via environment variables (see [`app/config.py`](app/config.py)):
+Settings live in a `.env` config file at the project root. Copy the template and edit it:
+
+```bash
+cp .env.example .env      # then edit .env
+```
+
+The app loads `.env` automatically on startup (real environment variables, if set,
+still take precedence). Available settings:
 
 | Variable            | Default              | Meaning                              |
 |---------------------|----------------------|--------------------------------------|
@@ -167,16 +174,22 @@ All via environment variables (see [`app/config.py`](app/config.py)):
 ### Using a standalone ChromaDB server (optional)
 
 By default Chroma runs **embedded** (in-process) and persists to `data/index/chroma/`.
-To use a separate ChromaDB server instead, start one and point the app at it:
+To use a separate ChromaDB server instead, start one and set its host/port in `.env`:
 
 ```bash
-# terminal 1 — run the Chroma server (installed with the requirements)
+# terminal 1 — run the Chroma server (the `chroma` CLI ships with the requirements)
 chroma run --host 0.0.0.0 --port 8001 --path ./chroma-data
-#   ...or via Docker:  docker run -p 8001:8000 chromadb/chroma
+```
 
-# terminal 2 — tell the app to use it, then ingest + serve
-export RAG_CHROMA_HOST=localhost RAG_CHROMA_PORT=8001
-python -m scripts.ingest        # vectors now land in the server, not on local disk
+```bash
+# .env — point the app at that server
+RAG_CHROMA_HOST=localhost
+RAG_CHROMA_PORT=8001
+```
+
+```bash
+# terminal 2 — ingest + serve; vectors now live on the server, not local disk
+python -m scripts.ingest
 ./scripts/run.sh
 ```
 

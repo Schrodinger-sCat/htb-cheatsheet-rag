@@ -1,15 +1,23 @@
 """Central configuration for the HTB Cheatsheet Assistant RAG service.
 
-Every value can be overridden with an environment variable so the same code runs
-locally, in CI, or in a container without edits.
+Settings are read from a `.env` config file at the project root (copy
+`.env.example` to `.env` and edit it) and can also be overridden by real
+environment variables. Edit `.env` to point the app at your ChromaDB server, pick
+models, etc. — no code changes needed.
 """
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # --- Paths ----------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load the .env config file (values already in the environment win over it).
+load_dotenv(BASE_DIR / ".env")
+
 RAW_DIR = Path(os.getenv("RAG_RAW_DIR", BASE_DIR / "data" / "raw"))
 INDEX_DIR = Path(os.getenv("RAG_INDEX_DIR", BASE_DIR / "data" / "index"))
 

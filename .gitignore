@@ -19,3 +19,6 @@ Cyber-20Security_Trainee_Assessment*.pdf
 
 # Corpus is fetched, not vendored (see scripts/fetch_data.py)
 data/raw/*.md
+
+# Local config (copy from .env.example)
+.env

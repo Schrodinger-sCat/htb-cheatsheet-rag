@@ -208,6 +208,20 @@ still take precedence). Available settings:
 > near-random passages). These tuned defaults make retrieval reliable; ingest also
 > runs a self-check that fails loudly rather than serve a bad index.
 
+### Troubleshooting
+
+**`Embedding request failed ... 400 Bad Request` during ingest.** Some Ollama builds
+reject a multi-input embed batch (or an over-long input). The ingester sends
+`truncate: true` and automatically retries a failed batch in smaller pieces, so this
+usually self-resolves. If it persists, force single-input embedding in `.env`:
+
+```bash
+RAG_EMBED_BATCH_SIZE=1
+RAG_EMBED_WORKERS=1
+```
+
+It's slower, but works on every Ollama version. Updating Ollama often fixes it too.
+
 ### Using a standalone ChromaDB server (optional)
 
 By default Chroma runs **embedded** (in-process) and persists to `data/index/chroma/`.

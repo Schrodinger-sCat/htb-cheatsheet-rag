@@ -70,11 +70,25 @@ def embed(
         with _client() as c:
             r = c.post(
                 "/api/embed",
-                json={"model": model, "input": texts, "keep_alive": keep_alive},
+                json={
+                    "model": model,
+                    "input": texts,
+                    "keep_alive": keep_alive,
+                    # Truncate inputs longer than the model's context instead of
+                    # failing. Some Ollama builds return 400 Bad Request on an
+                    # over-long input (e.g. a dense chunk vs all-minilm's small
+                    # window); truncating keeps the batch valid.
+                    "truncate": True,
+                },
             )
             _raise_for_status(r)
             data = r.json()
-            return data["embeddings"]
+            embeddings = data.get("embeddings")
+            if not embeddings:
+                raise OllamaError(
+                    f"{model} returned no embeddings (is it an embedding model?)"
+                )
+            return embeddings
     except Exception as exc:  # noqa: BLE001
         raise OllamaError(f"Embedding request failed ({model}): {exc}") from exc
 

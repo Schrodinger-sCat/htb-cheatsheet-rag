@@ -158,8 +158,9 @@ def chunk_file(path: Path) -> List[Chunk]:
 
 
 def iter_raw_files(raw_dir: Path | None = None) -> Iterator[Path]:
+    # Only the machine write-ups (htb-<name>.md); skip notes like DATASET.md.
     raw_dir = raw_dir or config.RAW_DIR
-    yield from sorted(raw_dir.glob("*.md"))
+    yield from sorted(raw_dir.glob("htb-*.md"))
 
 
 def build_chunks(raw_dir: Path | None = None) -> List[Chunk]:

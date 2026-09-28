@@ -14,6 +14,7 @@ On disk in `data/index/`:
 from __future__ import annotations
 
 import json
+import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -93,19 +94,40 @@ class RagIndex:
         }
 
 
+def _embed_batch_resilient(texts: List[str]) -> List[List[float]]:
+    """Embed a batch, splitting and retrying on failure down to one item.
+
+    Large batches are fast but can fail on a constrained machine (low disk/memory,
+    an oversized input, a transient Ollama error). Rather than abort the whole
+    ingest, we halve the batch and retry, isolating any single item that truly
+    cannot be embedded and re-raising only then.
+    """
+    try:
+        return llm.embed(texts)
+    except Exception:
+        if len(texts) <= 1:
+            raise  # a single chunk that genuinely can't be embedded
+        mid = len(texts) // 2
+        return _embed_batch_resilient(texts[:mid]) + _embed_batch_resilient(texts[mid:])
+
+
 def _embed_all(
     chunks: List[Chunk],
-    batch_size: int = 384,
-    workers: int = 3,
+    batch_size: int | None = None,
+    workers: int | None = None,
     progress=None,
 ) -> List[List[float]]:
-    """Embed every chunk with concurrent large batches.
+    """Embed every chunk with concurrent batches.
 
-    Ollama's per-request model-load cost dominates small batches, so we use big
-    batches. Results are written back in index order.
+    Ollama's per-request model-load cost dominates small batches, so we default to
+    big ones; a failed batch is split and retried (see `_embed_batch_resilient`)
+    so ingestion never hard-fails on a single oversized or transient case.
     """
     from concurrent.futures import ThreadPoolExecutor
     import threading
+
+    batch_size = batch_size or config.EMBED_BATCH_SIZE
+    workers = workers or config.EMBED_WORKERS
 
     texts = [c.retrieval_text() for c in chunks]
     batches = [(i, texts[i : i + batch_size]) for i in range(0, len(texts), batch_size)]
@@ -115,7 +137,7 @@ def _embed_all(
 
     def work(item):
         start, batch = item
-        emb = llm.embed(batch)
+        emb = _embed_batch_resilient(batch)
         with lock:
             results[start] = emb
             done["n"] += len(batch)
@@ -131,16 +153,28 @@ def _embed_all(
     return vecs
 
 
+def _hnsw_metadata() -> dict:
+    return {
+        "hnsw:space": "cosine",
+        "hnsw:M": config.CHROMA_HNSW_M,
+        "hnsw:construction_ef": config.CHROMA_HNSW_CONSTRUCTION_EF,
+        "hnsw:search_ef": config.CHROMA_HNSW_SEARCH_EF,
+    }
+
+
 def _populate_chroma(client, chunks: List[Chunk], embeddings: List[List[float]]):
-    """(Re)create the Chroma collection and add all chunk vectors."""
+    """(Re)create the Chroma collection and add all chunk vectors.
+
+    Tuned HNSW params (see config) are essential: Chroma's defaults produce a
+    low-quality, non-deterministic graph on a corpus this size, so search returns
+    near-random hits on many builds. For the embedded store the directory is wiped
+    in `build()` first; for a remote server we drop the collection here.
+    """
     try:
         client.delete_collection(COLLECTION_NAME)
     except Exception:  # noqa: BLE001 - fine if it doesn't exist yet
         pass
-    collection = client.create_collection(
-        name=COLLECTION_NAME,
-        metadata={"hnsw:space": "cosine"},
-    )
+    collection = client.create_collection(name=COLLECTION_NAME, metadata=_hnsw_metadata())
     add_batch = 2000
     for i in range(0, len(chunks), add_batch):
         sl = slice(i, i + add_batch)
@@ -164,11 +198,52 @@ def build(raw_dir: Path | None = None, progress=None) -> RagIndex:
         raise ValueError(f"No chunks produced from {raw_dir or config.RAW_DIR}")
     id2idx = {c.id: i for i, c in enumerate(chunks)}
 
+    # Embedded store: wipe the directory for a genuinely clean rebuild, and clear
+    # Chroma's cached client (a PersistentClient is a per-path singleton, so an
+    # in-process rebuild — e.g. POST /ingest — would otherwise reuse stale state).
+    if not config.CHROMA_HOST:
+        shutil.rmtree(_chroma_dir(index_dir), ignore_errors=True)
+        _clear_chroma_cache()
+
     embeddings = _embed_all(chunks, progress=progress)
     client = _chroma_client(index_dir)
     collection = _populate_chroma(client, chunks, embeddings)
 
-    return RagIndex(chunks, collection, id2idx, config.EMBED_MODEL, config.LLM_MODEL)
+    index = RagIndex(chunks, collection, id2idx, config.EMBED_MODEL, config.LLM_MODEL)
+    _verify_index(index)
+    return index
+
+
+def _clear_chroma_cache() -> None:
+    try:
+        import chromadb
+        chromadb.api.client.SharedSystemClient.clear_system_cache()
+    except Exception:  # noqa: BLE001 - best effort
+        pass
+
+
+def _verify_index(index: RagIndex, samples: int = 8) -> None:
+    """Sanity-check HNSW recall: a stored vector must find itself as nearest.
+
+    A bad HNSW build (see _populate_chroma) returns near-random neighbours; this
+    catches it at build time instead of letting the app serve silent garbage.
+    """
+    if index.collection is None or index.size == 0:
+        return
+    step = max(1, index.size // samples)
+    ids = [index.chunks[i].id for i in range(0, index.size, step)][:samples]
+    got = index.collection.get(ids=ids, include=["embeddings"])
+    misses = 0
+    for cid, vec in zip(got["ids"], got["embeddings"]):
+        res = index.collection.query(query_embeddings=[vec], n_results=1, include=["distances"])
+        if not res["ids"][0] or res["ids"][0][0] != cid or res["distances"][0][0] > 0.05:
+            misses += 1
+    if misses:
+        raise RuntimeError(
+            f"ChromaDB HNSW self-check failed ({misses}/{len(ids)} probes did not "
+            "return themselves) — the vector index is unreliable. Try raising "
+            "RAG_CHROMA_CONSTRUCTION_EF / RAG_CHROMA_HNSW_M and rebuilding."
+        )
 
 
 def save(index: RagIndex, index_dir: Path | None = None) -> None:

@@ -30,6 +30,12 @@ INDEX_DIR = Path(os.getenv("RAG_INDEX_DIR", BASE_DIR / "data" / "index"))
 CHROMA_HOST = os.getenv("RAG_CHROMA_HOST")  # e.g. "localhost"; unset = embedded
 CHROMA_PORT = int(os.getenv("RAG_CHROMA_PORT", "8000"))
 CHROMA_SSL = os.getenv("RAG_CHROMA_SSL", "0") == "1"
+# HNSW index quality. Chroma's DEFAULTS give poor, non-deterministic recall on a
+# corpus this size (nearest-neighbour search returns near-random hits on many
+# builds); these values make it reliable. Higher = better recall, slower build.
+CHROMA_HNSW_M = int(os.getenv("RAG_CHROMA_HNSW_M", "32"))
+CHROMA_HNSW_CONSTRUCTION_EF = int(os.getenv("RAG_CHROMA_CONSTRUCTION_EF", "200"))
+CHROMA_HNSW_SEARCH_EF = int(os.getenv("RAG_CHROMA_SEARCH_EF", "128"))
 
 # --- Ollama ---------------------------------------------------------------
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
@@ -46,6 +52,15 @@ REQUEST_TIMEOUT = float(os.getenv("RAG_REQUEST_TIMEOUT", "180"))
 MAX_CHUNK_CHARS = int(os.getenv("RAG_MAX_CHUNK_CHARS", "1400"))
 CHUNK_OVERLAP_CHARS = int(os.getenv("RAG_CHUNK_OVERLAP_CHARS", "200"))
 MIN_CHUNK_CHARS = int(os.getenv("RAG_MIN_CHUNK_CHARS", "80"))
+
+# --- Embedding (ingest) ---------------------------------------------------
+# How many chunks to embed per Ollama request, and how many requests to run
+# concurrently. Large batches amortise Ollama's per-request cost; if a batch
+# fails (e.g. a constrained machine, low disk, an oversized input) the ingester
+# automatically retries it in smaller pieces, down to one chunk at a time. Lower
+# these on a small machine.
+EMBED_BATCH_SIZE = int(os.getenv("RAG_EMBED_BATCH_SIZE", "384"))
+EMBED_WORKERS = int(os.getenv("RAG_EMBED_WORKERS", "3"))
 
 # --- Retrieval ------------------------------------------------------------
 # Passages returned by the embedding search (and fed to the LLM).

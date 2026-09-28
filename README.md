@@ -194,9 +194,19 @@ still take precedence). Available settings:
 | `RAG_LLM_MODEL`     | `llama3.2:latest`    | Synthesis model                      |
 | `RAG_EMBED_MODEL`   | `all-minilm`         | Embedding model (`nomic-embed-text` for higher quality) |
 | `RAG_TOP_K`         | `8`                  | Passages retrieved and fed to the LLM |
+| `RAG_EMBED_BATCH_SIZE` | `384`             | Chunks per embed request (lower on a small machine) |
+| `RAG_EMBED_WORKERS` | `3`                  | Concurrent embed requests during ingest |
 | `RAG_CHROMA_HOST`   | *(unset)*            | Standalone Chroma server host; unset = embedded on-disk |
 | `RAG_CHROMA_PORT`   | `8000`               | Standalone Chroma server port           |
 | `RAG_CHROMA_SSL`    | `0`                  | `1` to connect to the Chroma server over HTTPS |
+| `RAG_CHROMA_HNSW_M` | `32`                 | HNSW graph degree (index quality)       |
+| `RAG_CHROMA_CONSTRUCTION_EF` | `200`       | HNSW build breadth (index quality)      |
+| `RAG_CHROMA_SEARCH_EF` | `128`             | HNSW query breadth (search recall)      |
+
+> **Why the HNSW settings exist:** ChromaDB's default index parameters gave poor,
+> non-deterministic nearest-neighbour recall on this corpus (some rebuilds returned
+> near-random passages). These tuned defaults make retrieval reliable; ingest also
+> runs a self-check that fails loudly rather than serve a bad index.
 
 ### Using a standalone ChromaDB server (optional)
 

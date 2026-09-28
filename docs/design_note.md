@@ -42,6 +42,14 @@ Why embeddings rather than lexical:
   runs embedded by default, and setting `RAG_CHROMA_HOST` switches it to a standalone
   server (`HttpClient`) with no other code change.
 
+  One sharp edge worth recording: Chroma's **default HNSW parameters** produced a
+  low-quality, non-deterministic graph at this corpus size — many rebuilds returned
+  near-random neighbours (the records were intact in SQLite, so counts and a
+  brute-force scan looked fine, which made it easy to miss). Building with tuned
+  `hnsw:M` / `construction_ef` / `search_ef` makes recall reliable, and ingest runs a
+  self-check (a stored vector must retrieve itself) that fails the build rather than
+  serve a silently broken index.
+
 The honest trade-off: dropping lexical search costs precision on queries built around a
 verbatim token (`GetUserSPNs`, `pkexec`, `ESC1`), where an exact-string matcher is hard
 to beat and the embedder can blur near-neighbours (`ESC1` vs `ESC8`). Recovering that is

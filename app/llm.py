@@ -19,12 +19,27 @@ def _client() -> httpx.Client:
     return httpx.Client(base_url=config.OLLAMA_HOST, timeout=config.REQUEST_TIMEOUT)
 
 
+def _raise_for_status(r: httpx.Response) -> None:
+    """Like `r.raise_for_status()`, but keeps Ollama's own error message.
+
+    Ollama explains failures in a JSON body (`{"error": "..."}`); httpx's default
+    exception only says "400 Bad Request", which hides the actual cause.
+    """
+    if r.is_success:
+        return
+    try:
+        detail = r.json().get("error") or r.text
+    except ValueError:
+        detail = r.text
+    raise OllamaError(f"HTTP {r.status_code} from {r.request.url}: {detail.strip()}")
+
+
 def ping() -> dict:
     """Return Ollama version info; raises OllamaError if the server is down."""
     try:
         with _client() as c:
             r = c.get("/api/version")
-            r.raise_for_status()
+            _raise_for_status(r)
             return r.json()
     except Exception as exc:  # noqa: BLE001 - surface a clean message to the API
         raise OllamaError(f"Cannot reach Ollama at {config.OLLAMA_HOST}: {exc}") from exc
@@ -34,7 +49,7 @@ def list_models() -> List[str]:
     try:
         with _client() as c:
             r = c.get("/api/tags")
-            r.raise_for_status()
+            _raise_for_status(r)
             return [m["name"] for m in r.json().get("models", [])]
     except Exception as exc:  # noqa: BLE001
         raise OllamaError(f"Failed to list Ollama models: {exc}") from exc
@@ -57,7 +72,7 @@ def embed(
                 "/api/embed",
                 json={"model": model, "input": texts, "keep_alive": keep_alive},
             )
-            r.raise_for_status()
+            _raise_for_status(r)
             data = r.json()
             return data["embeddings"]
     except Exception as exc:  # noqa: BLE001
@@ -82,7 +97,7 @@ def generate(prompt: str, system: str | None = None, model: str | None = None) -
     try:
         with _client() as c:
             r = c.post("/api/generate", json=payload)
-            r.raise_for_status()
+            _raise_for_status(r)
             return r.json().get("response", "").strip()
     except Exception as exc:  # noqa: BLE001
         raise OllamaError(f"Generation request failed ({model}): {exc}") from exc

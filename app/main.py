@@ -2,6 +2,7 @@
 
 Endpoints
   GET  /health          - liveness + Ollama reachability + index status
+  GET  /diagnostics     - deep check that every setting works and is connected
   GET  /stats           - corpus / index statistics
   POST /ingest          - (re)build the index from the raw write-ups
   GET  /search          - retrieval only (ranked passages, no LLM)
@@ -13,9 +14,10 @@ import threading
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from . import config, index as index_mod, llm
+from . import config, diagnostics, index as index_mod, llm
 from .retrieve import search as retrieve_search
 from .synthesize import synthesize, citations
 
@@ -84,6 +86,21 @@ def health() -> dict:
         "embed_model": config.EMBED_MODEL,
         "building": _build_status["building"],
     }
+
+
+@app.get("/diagnostics")
+def run_diagnostics(
+    generate: bool = Query(
+        True, description="Also run a tiny LLM completion (the slowest check)."
+    ),
+) -> JSONResponse:
+    """Exercise every dependency for real: Ollama, both models, ChromaDB, the
+    index and an end-to-end search. Responds 503 if any check fails, so it can be
+    used from scripts (`curl -f`)."""
+    report = diagnostics.run(
+        _index, building=_build_status["building"], run_generation=generate
+    )
+    return JSONResponse(report, status_code=200 if report["ok"] else 503)
 
 
 @app.get("/stats")
@@ -164,5 +181,5 @@ def root() -> dict:
     return {
         "service": "HTB Cheatsheet Assistant (RAG)",
         "docs": "/docs",
-        "endpoints": ["/health", "/stats", "/ingest", "/search", "/ask"],
+        "endpoints": ["/health", "/diagnostics", "/stats", "/ingest", "/search", "/ask"],
     }

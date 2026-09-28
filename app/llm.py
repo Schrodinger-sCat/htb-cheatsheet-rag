@@ -79,8 +79,16 @@ def embed(
         raise OllamaError(f"Embedding request failed ({model}): {exc}") from exc
 
 
-def generate(prompt: str, system: str | None = None, model: str | None = None) -> str:
-    """Single-shot generation (non-streaming) for grounded answer synthesis."""
+def generate(
+    prompt: str,
+    system: str | None = None,
+    model: str | None = None,
+    num_predict: int | None = None,
+) -> str:
+    """Single-shot generation (non-streaming) for grounded answer synthesis.
+
+    `num_predict` caps the number of generated tokens (None = model default).
+    """
     model = model or config.LLM_MODEL
     payload = {
         "model": model,
@@ -92,6 +100,8 @@ def generate(prompt: str, system: str | None = None, model: str | None = None) -
             "num_ctx": config.LLM_NUM_CTX,
         },
     }
+    if num_predict is not None:
+        payload["options"]["num_predict"] = num_predict
     if system:
         payload["system"] = system
     try:

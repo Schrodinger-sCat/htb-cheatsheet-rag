@@ -96,6 +96,7 @@ and takes a few minutes on CPU with `all-minilm`. The corpus + metadata is writt
 | Method | Path       | Purpose                                                |
 |-------:|------------|--------------------------------------------------------|
 | GET    | `/health`  | Liveness, Ollama reachability, index status            |
+| GET    | `/diagnostics` | **Deep check** that every setting works and is connected |
 | GET    | `/stats`   | Corpus/index statistics                                |
 | POST   | `/ingest`  | (Re)build the index (`{"force": true}` to rebuild)     |
 | GET    | `/search`  | **Retrieval only** — ranked passages, no LLM           |
@@ -106,6 +107,9 @@ and takes a few minutes on CPU with `all-minilm`. The corpus + metadata is writt
 ```bash
 # Health
 curl -s localhost:8000/health | jq
+
+# Is everything configured and connected? (HTTP 503 if any check fails)
+curl -s localhost:8000/diagnostics | jq
 
 # Build the index (first run)
 curl -s -X POST localhost:8000/ingest -H 'content-type: application/json' \
@@ -132,6 +136,29 @@ curl -s -X POST localhost:8000/ask -H 'content-type: application/json' \
 
 Pass `"include_context": true` to `/ask` (or `include_text=true` to `/search`) to get
 the raw retrieved passages back for inspection.
+
+### Troubleshooting with `/diagnostics`
+
+If ingest or a query fails, start the API and open
+<http://localhost:8000/diagnostics>. It runs each dependency for real and reports
+`pass` / `warn` / `fail` / `skip` per check, with a `fix` hint for anything that
+is wrong:
+
+| Check        | What it verifies                                                        |
+|--------------|-------------------------------------------------------------------------|
+| `config`     | Effective settings (and whether `.env` was found); `OLLAMA_HOST` is a URL |
+| `raw_data`   | The Markdown corpus is in `RAG_RAW_DIR`                                 |
+| `ollama`     | The Ollama server answers, and its version                              |
+| `models`     | `RAG_EMBED_MODEL` and `RAG_LLM_MODEL` are pulled                        |
+| `embedding`  | Real embeds of a short **and** a chunk-sized text (catches Ollama builds that reject long inputs, which fails every ingest batch) |
+| `generation` | A tiny real LLM completion (skip it with `?generate=false`; it is the slowest) |
+| `chromadb`   | Chroma opens/connects (embedded store or `RAG_CHROMA_HOST` server)      |
+| `index`      | Vectors in Chroma match `chunks.jsonl`, same embedding model and size   |
+| `retrieval`  | An end-to-end search: embed a query, nearest neighbours from Chroma     |
+
+The response has `ok` (false if any check failed), a one-line `summary`, and the
+per-check details. The checks only read: they never build, rebuild or create
+anything.
 
 ---
 
@@ -210,6 +237,7 @@ app/            FastAPI service + RAG pipeline
   retrieve.py     embedding (dense) retrieval via ChromaDB
   synthesize.py   grounded, cited answer generation
   llm.py          Ollama client (embed + generate)
+  diagnostics.py  deep config/connectivity checks behind /diagnostics
   main.py         API endpoints
 eval/           test set + scoring script
 docs/           design note + evaluation writeup
